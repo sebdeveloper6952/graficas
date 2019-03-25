@@ -9,10 +9,17 @@ const int width = 400;
 const int height = 400;
 pixel pixel_buffer[height][width];
 float z_buffer[height][width];
+// used for dynamic vertex allocation
 vertex3 *vertices;
+unsigned int vertex_array_size = 1000;
+unsigned int vertex_count = 0;
+
+// used for dynamic face allocation
 unsigned int *faces;
-unsigned int vcount = 0;
-unsigned int fcount = 0;
+unsigned int face_array_size = 3000;
+unsigned int face_count = 0;
+
+// transformation matrices
 float t_matrix[4][4] = {0};
 float model_matrix[4][4] = {0};
 float view_matrix[4][4] = {0};
@@ -29,11 +36,15 @@ void initialize()
             z_buffer[row][col] = -INFINITY;
         }
     }
-    // TODO: allocate dynamic array for vertices and faces
-    vertices = (vertex3 *) malloc(sizeof(vertex3) * 1000);
-    faces = (unsigned int *) malloc(sizeof(int) * 3000);
+    
+    // initialize arrays for vertices and faces.
+    vertices = (vertex3 *) malloc(sizeof(vertex3) * vertex_array_size);
+    faces = (unsigned int *) malloc(sizeof(int) * face_array_size);
 }
 
+/*
+ * Free memory used by vertices and faces arrays.
+ */
 void cleanup()
 {
     free(vertices);
@@ -207,7 +218,39 @@ void load_matrices(unsigned int translate[3], unsigned int scale[3], unsigned in
     matrix_44_mul(temp_matrix, scale_matrix, model_matrix);
 }
 
-// loads the obj into the pixel buffer
+/* 
+ * Add a vertex to the vertices array and if necessary,
+ * reallocate more space for the array.
+ */
+ void add_vertex(vertex3 v)
+ {
+    if (vertex_count == vertex_array_size)
+    {
+        vertex_array_size *= 2;
+        vertices = realloc(vertices, sizeof(vertex3) * vertex_array_size);
+    }
+
+    vertices[vertex_count++] = v;
+ }
+
+/*
+ * Add the number of a vertex to the faces array and if
+ * necessary, reallocate more space for the array.
+ */
+ void add_face(unsigned int f)
+ {
+     if (face_count == face_array_size)
+    {
+        face_array_size *= 2;
+        faces = realloc(faces, sizeof(unsigned int) * face_array_size);
+    }
+
+    faces[face_count++] = f;
+ }
+
+/* 
+ * Loads the obj into the pixel buffer
+ */ 
 void read_obj(char *filename)
 {
     FILE *file;
@@ -241,7 +284,7 @@ void read_obj(char *filename)
                 v.x = c[0];
                 v.y = c[1];
                 v.z = c[2];
-                vertices[vcount++] = v;
+                add_vertex(v);
             }
             // face
             else if (strcmp(token, "f") == 0) 
@@ -251,7 +294,7 @@ void read_obj(char *filename)
                     token = strsep(&l, " ");
                     if (token != NULL)
                     {
-                        faces[fcount++] = atoi(strsep(&token, "/"));
+                        add_face(atoi(strsep(&token, "/")));
                         token = l;
                     }
                 }
@@ -263,13 +306,16 @@ void read_obj(char *filename)
     }
 }
 
+/* 
+ * Goes through the array of faces.
+ */ 
 void draw_obj(unsigned int translation[3], unsigned int scale[3], unsigned int rotation[3])
 {
     load_matrices(translation, scale, rotation);
     unsigned int c = 0;
     float light[3] = {0, 0, 1};
 
-    while (c < fcount)
+    while (c < face_count)
     {
         unsigned int f0 = faces[c++]-1;
         unsigned int f1 = faces[c++]-1;
@@ -314,6 +360,9 @@ void draw_obj(unsigned int translation[3], unsigned int scale[3], unsigned int r
     }
 }
 
+/* 
+ * Writes pixel data to BMP file.
+ */ 
 void write()
 {
     FILE *file;
@@ -380,11 +429,17 @@ int main(int argc, char **argv)
     
     unsigned int translation[3] = {200, 200, 0};
     unsigned int scale[3] = {100, 100, 100};
-    unsigned int rotation[3] = {330, 30, 0};
+    unsigned int rotation[3] = {345, 45, 0};
+    draw_obj(translation, scale, rotation);
+
+    translation[0] = 100;
+    translation[1] = 100;
+    scale[0] = 50;
+    scale[1] = 50;
+    scale[2] = 50;
     draw_obj(translation, scale, rotation);
     
     write();
-
     cleanup();
     
     return 0;
