@@ -83,7 +83,10 @@ void point(int x, int y, int c)
 void transform_vertex(float vertex[3], int res[3])
 {
     float va[4] = {vertex[0], vertex[1], vertex[2], 1.0};
-    vec4_matrix4_mul(va, model_matrix, res);
+    float t[4][4] = {0};
+    matrix_44_mul(model_matrix, view_matrix, t);
+    vec4_matrix4_mul(va, t, res);
+    // vec4_matrix4_mul(va, model_matrix, res);
 }
 
 void bounding_box(int *v0, int *v1, int *v2, int *box)
@@ -218,6 +221,39 @@ void load_matrices(unsigned int translate[3], unsigned int scale[3], unsigned in
     matrix_44_mul(temp_matrix, scale_matrix, model_matrix);
 }
 
+void look_at(float cam_pos[3], float to[3], float up[3])
+{
+    // forward
+    float f[3] = {0};
+    vec_diff(cam_pos, to, f);
+    vec_normalized(f, f);
+    // right
+    float r[3] = {0};
+    vec_cross(up, f, r);
+    vec_normalized(r, r);
+    // up
+    float u[3] = {0};
+    vec_cross(f, r, u);
+    vec_normalized(u, u);
+    // load view matrix
+    view_matrix[0][0] = r[0];
+    view_matrix[0][1] = r[1];
+    view_matrix[0][2] = r[2];
+    view_matrix[0][3] = -cam_pos[0];
+    view_matrix[1][0] = u[0];
+    view_matrix[1][1] = u[1];
+    view_matrix[1][2] = u[2];
+    view_matrix[1][3] = -cam_pos[1];
+    view_matrix[2][0] = f[0];
+    view_matrix[2][1] = f[1];
+    view_matrix[2][2] = f[2];
+    view_matrix[2][3] = -cam_pos[2];
+    view_matrix[3][0] = 0;
+    view_matrix[3][1] = 0;
+    view_matrix[3][2] = 0;
+    view_matrix[3][3] = 1;
+}
+
 /* 
  * Add a vertex to the vertices array and if necessary,
  * reallocate more space for the array.
@@ -312,6 +348,10 @@ void read_obj(char *filename)
 void draw_obj(unsigned int translation[3], unsigned int scale[3], unsigned int rotation[3])
 {
     load_matrices(translation, scale, rotation);
+    float cam_pos[3] = {0, 0, 1};
+    float to[3] = {0, 0, 0};
+    float up[3] = {0, 1, 0};
+    look_at(cam_pos, to, up);
     unsigned int c = 0;
     float light[3] = {0, 0, 1};
 
@@ -429,14 +469,7 @@ int main(int argc, char **argv)
     
     unsigned int translation[3] = {200, 200, 0};
     unsigned int scale[3] = {100, 100, 100};
-    unsigned int rotation[3] = {345, 45, 0};
-    draw_obj(translation, scale, rotation);
-
-    translation[0] = 100;
-    translation[1] = 100;
-    scale[0] = 50;
-    scale[1] = 50;
-    scale[2] = 50;
+    unsigned int rotation[3] = {0, 0, 0};
     draw_obj(translation, scale, rotation);
     
     write();
