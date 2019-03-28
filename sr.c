@@ -26,6 +26,52 @@ float view_matrix[4][4] = {0};
 float projection_matrix[4][4] = {0};
 float viewport_matrix[4][4] = {0};
 
+void load_viewport_matrix(int x, int y)
+{
+    viewport_matrix[0][0] = width/2;
+    viewport_matrix[0][3] = x + width/2;
+    viewport_matrix[1][1] = height/2;
+    viewport_matrix[1][3] = y + height/2;
+    viewport_matrix[2][2] = 128;
+    viewport_matrix[2][3] = 128;
+    viewport_matrix[3][3] = 1;
+}
+
+void look_at(float cam_pos[3], float to[3], float up[3])
+{
+    // forward
+    float f[3] = {0};
+    vec_diff(cam_pos, to, f);
+    vec_normalized(f, f);
+    // right
+    float r[3] = {0};
+    vec_cross(up, f, r);
+    vec_normalized(r, r);
+    // up
+    float u[3] = {0};
+    vec_cross(f, r, u);
+    vec_normalized(u, u);
+    // load view matrix
+    float temp[4][4] = {
+        {r[0], r[1], r[2], -cam_pos[0]},
+        {u[0], u[1], u[2], -cam_pos[1]},
+        {f[0], f[1], f[2], -cam_pos[2]},
+        {0, 0, 0, 1}
+    };
+
+    // projection matrix
+    float diff[3] = {0};
+    vec_diff(cam_pos, to, diff);
+    float l = vec_len(diff);
+    float coeff = l == 0 ? 0 : 1/l;
+    projection_matrix[0][0] = 1.0;
+    projection_matrix[1][1] = 1.0;
+    projection_matrix[2][2] = 1.0;
+    projection_matrix[3][2] = coeff;
+    projection_matrix[3][3] = 1.0;
+    matrix_44_mul(temp, projection_matrix, view_matrix);
+}
+
 void initialize()
 {
     // initialize z-buffer to -inf
@@ -40,6 +86,13 @@ void initialize()
     // initialize arrays for vertices and faces.
     vertices = (vertex3 *) malloc(sizeof(vertex3) * vertex_array_size);
     faces = (unsigned int *) malloc(sizeof(int) * face_array_size);
+
+    float cam_pos[3] = {0, 0, -1};
+    float to[3] = {0, 0, 0};
+    float up[3] = {0, 1, 0};
+    look_at(cam_pos, to, up);
+    // load viewport matrix as its always the same
+    load_viewport_matrix(0, 0);
 }
 
 /*
@@ -134,8 +187,8 @@ void barycentric(int *v0, int *v1, int *v2, int *p, float *res)
     }
     
     // u, v, w
-    res[0] = cross_res[0] / cross_res[2];
-    res[1] = cross_res[1] / cross_res[2];
+    res[0] = cross_res[0]/cross_res[2];
+    res[1] = cross_res[1]/cross_res[2];
     res[2] = 1 - (res[0] + res[1]);
 }
 
@@ -219,40 +272,9 @@ void load_matrices(unsigned int translate[3], unsigned int scale[3], unsigned in
     matrix_44_mul(temp_matrix, scale_matrix, model_matrix);
     // t_matrix = model_matrix * view_matrix
     matrix_44_mul(model_matrix, view_matrix, t_matrix);
-}
-
-void look_at(float cam_pos[3], float to[3], float up[3])
-{
-    // forward
-    float f[3] = {0};
-    vec_diff(cam_pos, to, f);
-    vec_normalized(f, f);
-    // right
-    float r[3] = {0};
-    vec_cross(up, f, r);
-    vec_normalized(r, r);
-    // up
-    float u[3] = {0};
-    vec_cross(f, r, u);
-    vec_normalized(u, u);
-    // load view matrix
-    float temp[4][4] = {
-        {r[0], r[1], r[2], -cam_pos[0]},
-        {u[0], u[1], u[2], -cam_pos[1]},
-        {f[0], f[1], f[2], -cam_pos[2]},
-        {0, 0, 0, 1}
-    };
-
-    // projection matrix
-    float diff[3] = {0};
-    vec_diff(cam_pos, to, diff);
-    float l = vec_len(diff);
-    projection_matrix[0][0] = 1.0;
-    projection_matrix[1][1] = 1.0;
-    projection_matrix[2][2] = 1.0;
-    projection_matrix[3][2] = 1 / l;
-    projection_matrix[3][3] = 1.0;
-    matrix_44_mul(temp, projection_matrix, view_matrix);
+    // TODO: implement viewport matrix into the pipeline
+    // matrix_44_mul(model_matrix, view_matrix, temp_matrix);
+    // matrix_44_mul(temp_matrix, viewport_matrix, t_matrix);
 }
 
 /* 
@@ -348,10 +370,6 @@ void read_obj(char *filename)
  */ 
 void draw_obj(unsigned int translation[3], unsigned int scale[3], unsigned int rotation[3])
 {
-    float cam_pos[3] = {0, 0, -1};
-    float to[3] = {0, 0, 0};
-    float up[3] = {0, 1, 0};
-    look_at(cam_pos, to, up);
     load_matrices(translation, scale, rotation);
     unsigned int c = 0;
     float light[3] = {0, 0, 1};
@@ -388,6 +406,7 @@ void draw_obj(unsigned int translation[3], unsigned int scale[3], unsigned int r
         float i = vec_dot(t0, light);
         int color = (int)(255 * i);
         if (color < 0) continue;
+        if (color > 255) color = 255;
 
         // transform vertices
         int vt0[3];
@@ -468,16 +487,13 @@ int main(int argc, char **argv)
     clear();
     read_obj(argv[1]);
     
-    unsigned int translation[3] = {200, 200, 0};
-    unsigned int scale[3] = {100, 100, 100};
-    unsigned int rotation[3] = {0, 0, 0};
-    draw_obj(translation, scale, rotation);
-
-    read_obj("eth.obj");
-    
-    translation[0] = 100;
-    translation[1] = 100;
-    translation[2] = 100;
+    float cam_pos[3] = {0, 0.5, 1};
+    float to[3] = {0, 0, 0};
+    float up[3] = {0.7, 0.7, 0};
+    look_at(cam_pos, to, up);
+    unsigned int translation[3] = {250, 200, 0};
+    unsigned int scale[3] = {150, 150, 150};
+    unsigned int rotation[3] = {15, 15, 0};
     draw_obj(translation, scale, rotation);
     
     write();
