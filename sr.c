@@ -5,10 +5,17 @@
 #include "utils.h"
 #include <float.h>
 
+// image data
 const int width = 400;
 const int height = 400;
+
+// light
+float light[3] = {0, 0, 1};
+
+// pixel and z-buffer 
 pixel pixel_buffer[height][width];
 float z_buffer[height][width];
+
 // used for dynamic vertex allocation
 vertex3 *vertices;
 unsigned int vertex_array_size = 1000;
@@ -18,6 +25,16 @@ unsigned int vertex_count = 0;
 unsigned int *faces;
 unsigned int face_array_size = 3000;
 unsigned int face_count = 0;
+
+// used for dynamic normal allocation
+unsigned int *faces_n;
+unsigned int face_n_array_size = 3000;
+unsigned int face_n_count = 0;
+
+// vertex normals
+vertex3 *vn;
+unsigned int vn_array_size = 1000;
+unsigned int vn_count = 0;
 
 // transformation matrices
 float t_matrix[4][4] = {0};
@@ -83,10 +100,13 @@ void initialize()
         }
     }
     
-    // initialize arrays for vertices and faces.
+    // initialize arrays for vertices, vns, faces, face normals.
     vertices = (vertex3 *) malloc(sizeof(vertex3) * vertex_array_size);
-    faces = (unsigned int *) malloc(sizeof(int) * face_array_size);
+    vn = (vertex3 *) malloc(sizeof(vertex3) * vn_array_size);
+    faces = (unsigned int *) malloc(sizeof(unsigned int) * face_array_size);
+    faces_n = (unsigned int *) malloc(sizeof(unsigned int) * face_n_array_size);
 
+    // initialize default look at
     float cam_pos[3] = {0, 0, -1};
     float to[3] = {0, 0, 0};
     float up[3] = {0, 1, 0};
@@ -102,6 +122,8 @@ void cleanup()
 {
     free(vertices);
     free(faces);
+    free(vn);
+    free(faces_n);
 }
 
 void clear()
@@ -121,14 +143,14 @@ void clear()
     }
 }
 
-void point(int x, int y, int c)
+void point(int x, int y, unsigned int col[3])
 {
     if (x >= 0 && x < width && y >= 0 && y < height)
     {
         pixel p;
-        p.b = c;
-        p.g = c;
-        p.r = c;
+        p.b = col[0];
+        p.g = col[1];
+        p.r = col[2];
         pixel_buffer[y][x] = p;
     }
 }
@@ -192,6 +214,17 @@ void barycentric(int *v0, int *v1, int *v2, int *p, float *res)
     res[2] = 1 - (res[0] + res[1]);
 }
 
+void gourad(float u, float v, float w, unsigned int col[3])
+{
+    unsigned int b = 200;
+    unsigned int g = 100;
+    unsigned int r = 50;
+    // calculate cross between light and vertex normal
+    col[0] = b;
+    col[1] = g;
+    col[2] = r;
+}
+
 void triangle(int *v0, int *v1, int *v2, int color)
 {
     int b_box[4];
@@ -209,11 +242,14 @@ void triangle(int *v0, int *v1, int *v2, int color)
             if (b_res[0] < 0 || b_res[1] < 0 || b_res[2] < 0)
                 continue;
 
+            unsigned int col[3] = {0};
+            gourad(b_res[0], b_res[1], b_res[2], col);
+
             float z = v0[2] * b_res[2] + v1[2] * b_res[1] + v2[2] * b_res[0];
             if (z_buffer[y][x] < z)
             {
                 z_buffer[y][x] = z;
-                point(x, y, color);
+                point(x, y, col);
             }
         }
     }
@@ -292,20 +328,46 @@ void load_matrices(unsigned int translate[3], unsigned int scale[3], unsigned in
     vertices[vertex_count++] = v;
  }
 
+ /* 
+ * Add a vertex normal to the vertices normal array and 
+ * if necessary, reallocate more space for the array.
+ */
+ void add_vertex_normal(vertex3 v)
+ {
+    if (vn_count == vn_array_size)
+    {
+        vn_array_size *= 2;
+        vn = realloc(vn, sizeof(vertex3) * vn_array_size);
+    }
+
+    vn[vn_count++] = v;
+ }
+
 /*
  * Add the number of a vertex to the faces array and if
  * necessary, reallocate more space for the array.
  */
- void add_face(unsigned int f)
- {
-     if (face_count == face_array_size)
-    {
-        face_array_size *= 2;
-        faces = realloc(faces, sizeof(unsigned int) * face_array_size);
-    }
+void add_face(unsigned int f)
+{
+if (face_count == face_array_size)
+{
+    face_array_size *= 2;
+    faces = realloc(faces, sizeof(unsigned int) * face_array_size);
+}
 
     faces[face_count++] = f;
- }
+}
+
+void add_face_vn(unsigned int f)
+{
+    if (face_n_count == face_n_array_size)
+    {
+        face_n_array_size *= 2;
+        faces_n = realloc(faces_n, sizeof(unsigned int) * face_n_array_size);
+    }
+
+    faces_n[face_n_count++] = f;
+}
 
 /* 
  * Loads the obj into the pixel buffer
@@ -345,17 +407,41 @@ void read_obj(char *filename)
                 v.z = c[2];
                 add_vertex(v);
             }
+            // vertex normals
+            else if (strcmp(token, "vn") == 0)
+            {
+                float c[3] = {0, 0, 0};
+                int i = 0;
+                token = strsep(&l, " ");
+                // keep splitting
+                while (token != NULL)
+                {
+                    if (i < 3) c[i++] = atof(token);
+                    token = strsep(&l, " ");
+                }
+                // save vertex
+                vertex3 v;
+                v.x = c[0];
+                v.y = c[1];
+                v.z = c[2];
+                add_vertex_normal(v);
+            }
             // face
             else if (strcmp(token, "f") == 0) 
             {
-                while (token != NULL)
+                unsigned int c = 0;
+                while (c < 3)
                 {
+                    char *t = 0;
+                    // f0
                     token = strsep(&l, " ");
-                    if (token != NULL)
-                    {
-                        add_face(atoi(strsep(&token, "/")));
-                        token = l;
-                    }
+                    t = strsep(&token, "/");
+                    add_face(atoi(t));
+                    t = strsep(&token, "/");
+                    // add_vt(atoi(t));
+                    t = strsep(&token, "/");
+                    add_face_vn(atoi(t));
+                    c++;
                 }
             }
             
@@ -376,14 +462,22 @@ void draw_obj(unsigned int translation[3], unsigned int scale[3], unsigned int r
 
     while (c < face_count)
     {
-        unsigned int f0 = faces[c++]-1;
-        unsigned int f1 = faces[c++]-1;
-        unsigned int f2 = faces[c++]-1;
+        unsigned int f0 = faces[c]-1;
+        unsigned int fn0 = faces_n[c++]-1;
+        unsigned int f1 = faces[c]-1;
+        unsigned int fn1 = faces_n[c++]-1;
+        unsigned int f2 = faces[c]-1;
+        unsigned int fn2 = faces_n[c++]-1;
         
         // grab 3 vertices
         float v0[3];
         float v1[3];
         float v2[3];
+
+        // grab 3 normals
+        float n0[3];
+        float n1[3];
+        float n2[3];
         
         v0[0] = vertices[f0].x;
         v0[1] = vertices[f0].y;
@@ -394,6 +488,16 @@ void draw_obj(unsigned int translation[3], unsigned int scale[3], unsigned int r
         v2[0] = vertices[f2].x;
         v2[1] = vertices[f2].y;
         v2[2] = vertices[f2].z;
+
+        n0[0] = vn[fn0].x;
+        n0[1] = vn[fn0].y;
+        n0[2] = vn[fn0].z;
+        n1[0] = vn[fn1].x;
+        n1[1] = vn[fn1].y;
+        n1[2] = vn[fn1].z;
+        n2[0] = vn[fn2].x;
+        n2[1] = vn[fn2].y;
+        n2[2] = vn[fn2].z;
 
         // calculate face color
         float t0[3] = {0};
@@ -489,14 +593,15 @@ int main(int argc, char **argv)
     
     float cam_pos[3] = {0, 0.5, 1};
     float to[3] = {0, 0, 0};
-    float up[3] = {0.7, 0.7, 0};
+    float up[3] = {0, 1, 0};
     look_at(cam_pos, to, up);
-    unsigned int translation[3] = {250, 200, 0};
-    unsigned int scale[3] = {150, 150, 150};
+    unsigned int translation[3] = {100, 100, 0};
+    unsigned int scale[3] = {200, 200, 200};
     unsigned int rotation[3] = {15, 15, 0};
     draw_obj(translation, scale, rotation);
     
     write();
+
     cleanup();
     
     return 0;
