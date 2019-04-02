@@ -214,18 +214,23 @@ void barycentric(int *v0, int *v1, int *v2, int *p, float *res)
     res[2] = 1 - (res[0] + res[1]);
 }
 
-void gourad(float u, float v, float w, unsigned int col[3])
+void gourad(float u, float v, float w, float *n0, float *n1, float *n2, unsigned int col[3])
 {
-    unsigned int b = 200;
-    unsigned int g = 100;
-    unsigned int r = 50;
     // calculate cross between light and vertex normal
-    col[0] = b;
-    col[1] = g;
-    col[2] = r;
+    float ia = vec_dot(n0, light);
+    float ib = vec_dot(n1, light);
+    float ic = vec_dot(n2, light);
+
+    float i = ia * w + ib * u + ic * v;
+    unsigned int in = 255 * i;
+    in = in > 255 ? 255 : in;
+    
+    col[0] = in;
+    col[1] = in;
+    col[2] = in;
 }
 
-void triangle(int *v0, int *v1, int *v2, int color)
+void triangle(int *v0, int *v1, int *v2, float *n0, float *n1, float *n2)
 {
     int b_box[4];
     bounding_box(v0, v1, v2, b_box);
@@ -243,7 +248,7 @@ void triangle(int *v0, int *v1, int *v2, int color)
                 continue;
 
             unsigned int col[3] = {0};
-            gourad(b_res[0], b_res[1], b_res[2], col);
+            gourad(b_res[0], b_res[1], b_res[2], n0, n1, n2, col);
 
             float z = v0[2] * b_res[2] + v1[2] * b_res[1] + v2[2] * b_res[0];
             if (z_buffer[y][x] < z)
@@ -520,7 +525,7 @@ void draw_obj(unsigned int translation[3], unsigned int scale[3], unsigned int r
         transform_vertex(v1, vt1);
         transform_vertex(v2, vt2);
 
-        triangle(vt0, vt1, vt2, color);
+        triangle(vt0, vt1, vt2, n0, n1, n2);
     }
 }
 
@@ -591,13 +596,13 @@ int main(int argc, char **argv)
     clear();
     read_obj(argv[1]);
     
-    float cam_pos[3] = {0, 0.5, 1};
+    float cam_pos[3] = {0, 0, 1};
     float to[3] = {0, 0, 0};
     float up[3] = {0, 1, 0};
     look_at(cam_pos, to, up);
-    unsigned int translation[3] = {100, 100, 0};
+    unsigned int translation[3] = {400, 200, 0};
     unsigned int scale[3] = {200, 200, 200};
-    unsigned int rotation[3] = {15, 15, 0};
+    unsigned int rotation[3] = {0, 45, 0};
     draw_obj(translation, scale, rotation);
     
     write();
